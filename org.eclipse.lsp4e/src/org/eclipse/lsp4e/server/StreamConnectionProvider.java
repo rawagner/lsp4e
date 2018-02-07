@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 
+import org.eclipse.core.runtime.content.IContentType;
 import org.eclipse.jdt.annotation.Nullable;
 import org.eclipse.lsp4j.jsonrpc.messages.Message;
 import org.eclipse.lsp4j.services.LanguageServer;
@@ -130,5 +131,14 @@ public interface StreamConnectionProvider {
 	 * @param rootUri
 	 */
 	public default void handleMessage(Message message, LanguageServer languageServer, URI rootURI) {}
+
+	public void notifyContentTypeDisabled(IContentType contentType);
+
+	/**
+	 * Enables stream connection provider
+	 *
+	 * @return true if stream connection was enabled, false otherwise
+	 */
+	public boolean enable();
 
 }

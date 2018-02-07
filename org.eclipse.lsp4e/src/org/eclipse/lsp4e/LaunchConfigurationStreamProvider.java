@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import org.eclipse.core.runtime.Assert;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.core.runtime.content.IContentType;
 import org.eclipse.debug.core.DebugException;
 import org.eclipse.debug.core.DebugPlugin;
 import org.eclipse.debug.core.ILaunch;
@@ -212,6 +213,15 @@ public class LaunchConfigurationStreamProvider implements StreamConnectionProvid
 		this.inputStream = null;
 		this.outputStream = null;
 		this.errorStream = null;
+	}
+
+	@Override
+	public void notifyContentTypeDisabled(IContentType contentType) {
+	}
+
+	@Override
+	public boolean enable() {
+		return true;
 	}
 
 }

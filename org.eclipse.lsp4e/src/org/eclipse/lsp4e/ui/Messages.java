@@ -51,6 +51,7 @@ public class Messages extends NLS {
 	public static String LSSearchQuery_label;
 	public static String LSSearchQuery_singularReference;
 	public static String LSSearchQuery_pluralReferences;
+	public static String enableDisableLSJob;
 
 	static {
 		NLS.initializeMessages("org.eclipse.lsp4e.ui.messages", Messages.class); //$NON-NLS-1$

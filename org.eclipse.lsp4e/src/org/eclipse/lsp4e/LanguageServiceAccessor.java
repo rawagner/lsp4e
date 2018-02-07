@@ -24,6 +24,7 @@ import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -43,6 +44,12 @@ import org.eclipse.lsp4e.server.StreamConnectionProvider;
 import org.eclipse.lsp4j.ServerCapabilities;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.eclipse.lsp4j.services.LanguageServer;
+import org.eclipse.swt.widgets.Display;
+import org.eclipse.ui.IEditorReference;
+import org.eclipse.ui.IWorkbenchPage;
+import org.eclipse.ui.IWorkbenchWindow;
+import org.eclipse.ui.PlatformUI;
+import org.eclipse.ui.part.FileEditorInput;
 
 /**
  * The entry-point to retrieve a Language Server for a given resource/project.
@@ -144,6 +151,69 @@ public class LanguageServiceAccessor {
 		return wrappers.stream().map(LanguageServerWrapper::getInitializedServer).collect(Collectors.toList());
 	}
 
+	public static void disableLanguageServerContentType(@NonNull ContentTypeToLanguageServerDefinition lsDefinition) {
+		Optional<LanguageServerWrapper> result = startedServers.stream()
+				.filter(server -> server.getServerDefinition().equals(lsDefinition.getValue())).findFirst();
+		if (result.isPresent()) {
+			IContentType contentType = lsDefinition.getKey();
+			if (contentType != null) {
+				result.get().disableContentType(contentType);
+			}
+		}
+
+	}
+
+	public static void enableLanguageServerContentType(@NonNull ContentTypeToLanguageServerDefinition lsDefinition) {
+		for (IEditorReference editor : getEditors()) {
+			try {
+				if (editor.getEditorInput() instanceof FileEditorInput) {
+					IFile editorFile = ((FileEditorInput) editor.getEditorInput()).getFile();
+					IContentType contentType = lsDefinition.getKey();
+					LanguageServerDefinition definition = lsDefinition.getValue();
+					if (lsDefinition.isEnabled() && contentType != null
+							&& contentType.equals(editorFile.getContentDescription().getContentType())
+							&& definition != null) {
+						try {
+							getInitializedLanguageServer(editorFile, definition, capabilities -> true);
+						} catch (IOException e) {
+							LanguageServerPlugin.logError(e);
+						}
+					}
+				}
+			} catch (CoreException e) {
+				LanguageServerPlugin.logError(e);
+			}
+		}
+
+	}
+
+	private static IEditorReference[] getEditors() {
+		EditorRunnable eRunnable = new EditorRunnable();
+		Display.getDefault().syncExec(eRunnable);
+		return eRunnable.getReferences();
+	}
+
+	private static class EditorRunnable implements Runnable {
+
+		private IEditorReference[] references = new IEditorReference[0];
+
+		@Override
+		public void run() {
+			IWorkbenchWindow wWindow = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
+			if (wWindow != null) {
+				IWorkbenchPage wPage = wWindow.getActivePage();
+				if (wPage != null) {
+					references = wPage.getEditorReferences();
+				}
+			}
+
+		}
+
+		public IEditorReference[] getReferences() {
+			return references;
+		}
+	}
+
 	/**
 	 * Get the requested language server instance for the given file. Starts the language server if not already started.
 	 * @param file
@@ -237,7 +307,7 @@ public class LanguageServiceAccessor {
 				continue;
 			}
 			for (ContentTypeToLanguageServerDefinition mapping : LanguageServersRegistry.getInstance().findProviderFor(contentType)) {
-				if (mapping != null && mapping.getValue() != null) {
+				if (mapping != null && mapping.getValue() != null && mapping.isEnabled()) {
 					ProjectSpecificLanguageServerWrapper wrapper = getLSWrapperForConnection(project, mapping.getValue());
 					if (request == null
 						|| wrapper.getServerCapabilities() == null /* null check is workaround for https://github.com/TypeFox/ls-api/issues/47 */
@@ -302,8 +372,10 @@ public class LanguageServiceAccessor {
 			return startedServers.stream()
 					.filter(wrapper -> {
 						try {
-							return wrapper.isConnectedTo(file.getLocation()) ||
-								(LanguageServersRegistry.getInstance().matches(file, wrapper.serverDefinition) && wrapper.canOperate(file.getProject()));
+							return wrapper.isConnectedTo(file.getLocation())
+									||
+									(LanguageServersRegistry.getInstance().matches(file, wrapper.serverDefinition)
+											&& wrapper.canOperate(file.getProject()));
 						} catch (IOException | CoreException e) {
 							LanguageServerPlugin.logError(e);
 							return false;

@@ -36,6 +36,8 @@ import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResourceChangeEvent;
 import org.eclipse.core.resources.IResourceDelta;
+import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
@@ -185,7 +187,8 @@ public class LanguageServerWrapper {
 					consumer -> (message -> {
 						consumer.consume(message);
 						logMessage(message);
-						this.lspStreamProvider.handleMessage(message, this.languageServer, URI.create(initParams.getRootUri()));
+						this.lspStreamProvider.handleMessage(message, this.languageServer,
+								URI.create(initParams.getRootUri()));
 					}));
 			this.languageServer = launcher.getRemoteProxy();
 			client.connect(languageServer, this);
@@ -419,6 +422,23 @@ public class LanguageServerWrapper {
 		}
 	}
 
+	public void disableContentType(@NonNull IContentType contentType) {
+		for (IPath path : connectedDocuments.keySet()) {
+			IFile[] foundFiles = ResourcesPlugin.getWorkspace().getRoot().findFilesForLocationURI(path.toFile().toURI());
+			if(foundFiles.length != 0) {
+				try {
+					if (contentType.equals(foundFiles[0].getContentDescription().getContentType())) {
+						disconnect(path);
+					}
+				} catch (CoreException e) {
+					LanguageServerPlugin.logError(
+							"Error occured while disabling Language Server for content type " + contentType, e); //$NON-NLS-1$
+				}
+			}
+		}
+		lspStreamProvider.notifyContentTypeDisabled(contentType);
+	}
+
 	/**
 	 * checks if the wrapper is already connected to the document at the given path
 	 *
@@ -525,6 +545,10 @@ public class LanguageServerWrapper {
 				supportWorkspaceFoldersCapability = false;
 			}
 		});
+	}
+
+	public LanguageServerDefinition getServerDefinition() {
+		return serverDefinition;
 	}
 
 }

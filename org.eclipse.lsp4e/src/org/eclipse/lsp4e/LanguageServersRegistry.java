@@ -66,6 +66,7 @@ public class LanguageServersRegistry {
 	private static final String CLIENT_IMPL_ATTRIBUTE = "clientImpl"; //$NON-NLS-1$
 	private static final String SERVER_INTERFACE_ATTRIBUTE = "serverInterface"; //$NON-NLS-1$
 	private static final String LABEL_ATTRIBUTE = "label"; //$NON-NLS-1$
+	private static final String ENABLED_ATTRIBUTE = "enabled"; //$NON-NLS-1$
 
 	public static abstract class LanguageServerDefinition {
 		public final @NonNull String id;
@@ -91,10 +92,18 @@ public class LanguageServersRegistry {
 		public Class<? extends LanguageServer> getServerInterface() {
 			return LanguageServer.class;
 		}
+
+		/**
+		 * Enables language server
+		 *
+		 * @return true if language server was sucessfully enabled, false otherwise
+		 */
+		public abstract boolean enable();
 	}
 
 	static class ExtensionLanguageServerDefinition extends LanguageServerDefinition {
 		private IConfigurationElement extension;
+		private StreamConnectionProvider provider;
 
 		public ExtensionLanguageServerDefinition(IConfigurationElement element) {
 			super(element.getAttribute(ID_ATTRIBUTE), element.getAttribute(LABEL_ATTRIBUTE));
@@ -103,13 +112,16 @@ public class LanguageServersRegistry {
 
 		@Override
 		public StreamConnectionProvider createConnectionProvider() {
-			try {
-				return (StreamConnectionProvider) extension.createExecutableExtension(CLASS_ATTRIBUTE);
-			} catch (CoreException e) {
-				StatusManager.getManager().handle(e, LanguageServerPlugin.PLUGIN_ID);
-				throw new RuntimeException(
-						"Exception occurred while creating an instance of the stream connection provider", e); //$NON-NLS-1$
+			if (provider == null) {
+				try {
+					provider = (StreamConnectionProvider) extension.createExecutableExtension(CLASS_ATTRIBUTE);
+				} catch (CoreException e) {
+					StatusManager.getManager().handle(e, LanguageServerPlugin.PLUGIN_ID);
+					throw new RuntimeException(
+							"Exception occurred while creating an instance of the stream connection provider", e); //$NON-NLS-1$
+				}
 			}
+			return provider;
 		}
 
 		@Override
@@ -142,6 +154,12 @@ public class LanguageServersRegistry {
 			}
 			return super.getServerInterface();
 		}
+
+		@Override
+		public boolean enable() {
+			return createConnectionProvider().enable();
+		}
+
 	}
 
 	static class LaunchConfigurationLanguageServerDefinition extends LanguageServerDefinition {
@@ -158,6 +176,11 @@ public class LanguageServersRegistry {
 		@Override
 		public StreamConnectionProvider createConnectionProvider() {
 			return new LaunchConfigurationStreamProvider(this.launchConfiguration, launchModes);
+		}
+
+		@Override
+		public boolean enable() {
+			return true;
 		}
 	}
 
@@ -201,7 +224,14 @@ public class LanguageServersRegistry {
 					String languageId = extension.getAttribute(LANGUAGE_ID_ATTRIBUTE);
 
 					if (contentType != null) {
-						contentTypes.add(new ContentTypeMapping(contentType, id, languageId));
+						String enabledAttr = extension.getAttribute(ENABLED_ATTRIBUTE);
+						if (enabledAttr == null) {
+							contentTypes.add(new ContentTypeMapping(contentType, id, languageId, true));
+						} else {
+							contentTypes.add(
+									new ContentTypeMapping(contentType, id, languageId, Boolean.valueOf(enabledAttr)));
+						}
+
 					}
 				}
 			}
@@ -210,7 +240,7 @@ public class LanguageServersRegistry {
 		for (ContentTypeMapping mapping : contentTypes) {
 			LanguageServerDefinition lsDefinition = servers.get(mapping.id);
 			if (lsDefinition != null) {
-				registerAssociation(mapping.contentType, lsDefinition, mapping.languageId);
+				registerAssociation(mapping.contentType, lsDefinition, mapping.languageId, mapping.enabled);
 			} else {
 				LanguageServerPlugin.logWarning("server '" + mapping.id + "' not available", null); //$NON-NLS-1$ //$NON-NLS-2$
 			}
@@ -259,17 +289,19 @@ public class LanguageServersRegistry {
 	}
 
 	public void registerAssociation(@NonNull IContentType contentType, @NonNull ILaunchConfiguration launchConfig, @NonNull Set<String> launchMode) {
-		ContentTypeToLSPLaunchConfigEntry mapping = new ContentTypeToLSPLaunchConfigEntry(contentType, launchConfig, launchMode);
+		ContentTypeToLSPLaunchConfigEntry mapping = new ContentTypeToLSPLaunchConfigEntry(contentType, launchConfig,
+				launchMode);
 		connections.add(mapping);
 		persistContentTypeToLaunchConfigurationMapping();
 	}
 
-	public void registerAssociation(@NonNull IContentType contentType, @NonNull LanguageServerDefinition serverDefinition, @Nullable String languageId) {
+	public void registerAssociation(@NonNull IContentType contentType,
+			@NonNull LanguageServerDefinition serverDefinition, @Nullable String languageId, boolean enabled) {
 		if (languageId != null) {
 			serverDefinition.registerAssociation(contentType, languageId);
 		}
 
-		connections.add(new ContentTypeToLanguageServerDefinition(contentType, serverDefinition));
+		connections.add(new ContentTypeToLanguageServerDefinition(contentType, serverDefinition, enabled));
 	}
 
 	public void setAssociations(List<ContentTypeToLSPLaunchConfigEntry> wc) {
@@ -310,11 +342,14 @@ public class LanguageServersRegistry {
 		@NonNull public final String id;
 		@NonNull public final IContentType contentType;
 		@Nullable public final String languageId;
+		public final boolean enabled;
 
-		public ContentTypeMapping(@NonNull IContentType contentType, @NonNull String id, @Nullable String languageId) {
+		public ContentTypeMapping(@NonNull IContentType contentType, @NonNull String id, @Nullable String languageId,
+				boolean enabled) {
 			this.contentType = contentType;
 			this.id = id;
 			this.languageId = languageId;
+			this.enabled = enabled;
 		}
 
 	}
@@ -331,7 +366,8 @@ public class LanguageServersRegistry {
 		try (InputStream contents = file.getContents()) {
 			Collection<IContentType> fileContentTypes = Arrays.asList(manager.findContentTypeFor(contents, file.getName()));
 			for (ContentTypeToLanguageServerDefinition mapping : this.connections) {
-				if (mapping.getValue().equals(serverDefinition) && fileContentTypes.contains(mapping.getKey())) {
+				if (mapping.isEnabled() && mapping.getValue().equals(serverDefinition)
+						&& fileContentTypes.contains(mapping.getKey())) {
 					return true;
 				}
 			}

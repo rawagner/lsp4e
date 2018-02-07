@@ -21,8 +21,36 @@ public class ContentTypeToLanguageServerDefinition extends SimpleEntry<IContentT
 
 	private static final long serialVersionUID = 6002703726009331762L;
 
-	public ContentTypeToLanguageServerDefinition(@NonNull IContentType contentType, @NonNull LanguageServerDefinition provider) {
+	private boolean enabledDefault;
+
+	public ContentTypeToLanguageServerDefinition(@NonNull IContentType contentType,
+			@NonNull LanguageServerDefinition provider) {
+		this(contentType, provider, true);
+	}
+
+	public ContentTypeToLanguageServerDefinition(@NonNull IContentType contentType,
+			@NonNull LanguageServerDefinition provider, boolean enabledDefault) {
 		super(contentType, provider);
+		this.enabledDefault = enabledDefault;
+	}
+
+	public boolean isEnabled() {
+		if (LanguageServerPlugin.getDefault().getPreferenceStore().contains(getPreferencesKey())) {
+			return LanguageServerPlugin.getDefault().getPreferenceStore().getBoolean(getPreferencesKey());
+		}
+		return enabledDefault;
+	}
+
+	public boolean setEnabled(boolean enabled) {
+		if (enabled && !getValue().enable()) {
+			return false;
+		}
+		LanguageServerPlugin.getDefault().getPreferenceStore().setValue(getPreferencesKey(), String.valueOf(enabled));
+		return true;
+	}
+
+	private String getPreferencesKey() {
+		return getValue().id + "/" + getKey().getId(); //$NON-NLS-1$
 	}
 
 }
